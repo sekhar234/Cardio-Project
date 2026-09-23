@@ -1,0 +1,17 @@
+aiosqlite==0.22.1
+fastapi==0.141.1
+graphiti-core==0.30.2
+httpx==0.28.1
+langchain-core==1.6.4
+langgraph==1.2.12
+neo4j==6.3.1
+openai==3.19.0
+psycopg[binary]==3.3.6
+pydantic==2.13.3
+pypdf==3.17.4
+python-docx==1.2.0
+qdrant-client==1.19.1
+SQLAlchemy==2.0.54
+tenacity==9.1.4
+trafilatura==2.2.0
+uvicorn[standard]==0.46.0

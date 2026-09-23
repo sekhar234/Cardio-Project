@@ -61,6 +61,8 @@ class Settings:
     neo4j_uri: str = field(default_factory=lambda: os.getenv("NEO4J_URI", ""))
     neo4j_user: str = field(default_factory=lambda: os.getenv("NEO4J_USER", os.getenv("NEO4J_USERNAME", "neo4j")))
     neo4j_password: str = field(default_factory=lambda: os.getenv("NEO4J_PASSWORD", ""))
+    # Newer Neo4j Aura instances name the database after the instance id, not "neo4j".
+    neo4j_database: str = field(default_factory=lambda: os.getenv("NEO4J_DATABASE", "neo4j"))
 
     # Research budget: the knobs that trade depth for time and cost.
     max_queries_per_round: int = field(default_factory=lambda: int(os.getenv("MAX_QUERIES_PER_ROUND", "16")))

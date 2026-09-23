@@ -94,6 +94,7 @@ class GraphStore:
             return
         from graphiti_core import Graphiti
         from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient
+        from graphiti_core.driver.neo4j_driver import Neo4jDriver
         from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
         from graphiti_core.llm_client.config import LLMConfig
         from graphiti_core.llm_client.openai_client import OpenAIClient
@@ -101,9 +102,8 @@ class GraphStore:
         llm_cfg = LLMConfig(api_key=settings.openai_api_key, model=settings.graph_model,
                             small_model=settings.graph_small_model)
         self.g = Graphiti(
-            settings.neo4j_uri,
-            settings.neo4j_user,
-            settings.neo4j_password,
+            graph_driver=Neo4jDriver(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password,
+                                     database=settings.neo4j_database),
             llm_client=OpenAIClient(config=llm_cfg),
             embedder=OpenAIEmbedder(OpenAIEmbedderConfig(api_key=settings.openai_api_key,
                                                          embedding_model=settings.embedding_model)),

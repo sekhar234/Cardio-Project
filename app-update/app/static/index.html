@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>City Intelligence · CARDIO4Cities</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css">
+<script src="/static/vendor/vis-network.min.js" defer></script>
+<script src="/static/vendor/mermaid.min.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="logo">♥</span> CARDIO4Cities <span class="sub">City Intelligence</span></div>
+  <div id="health" class="health"></div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <form id="new-run" class="card">
+      <h3>Research a city</h3>
+      <label>City<input name="city" required placeholder="e.g. Kumasi" autocomplete="off"></label>
+      <label>Country <span class="muted">(optional, helps disambiguate)</span><input name="country" placeholder="e.g. Ghana" autocomplete="off"></label>
+      <label id="code-wrap" hidden>Access code<input name="code" type="password"></label>
+      <button type="submit" class="primary">Start live research</button>
+      <p class="muted small">Searches the public web now, checks permission before crawling, fact-checks every claim, and builds a knowledge graph. Takes ~5–10 minutes.</p>
+    </form>
+    <div class="card">
+      <h3>Research runs</h3>
+      <ul id="runs" class="runs"></ul>
+    </div>
+  </aside>
+
+  <main id="main">
+    <section id="welcome" class="welcome">
+      <h1>Prepare for a city engagement with evidence you can trace.</h1>
+      <p>Start a research run on the left, or open a previous one. Every finding links to the exact quote in its source, with the crawl permission and the fact-checker's verdict. Anything the research couldn't establish is shown as a gap, not filled in.</p>
+      <div class="legend">
+        <span class="badge ok">Supported</span> verified against the source by an independent checker
+        <span class="badge partial">Partial</span> core fact verified, a qualifier isn't
+        <span class="badge nat">National data</span> not city-specific
+        <span class="badge bad">Rejected</span> kept in the audit trail only
+      </div>
+    </section>
+
+    <section id="run" hidden>
+      <div class="run-head">
+        <div>
+          <h1 id="run-title"></h1>
+          <div id="run-sub" class="muted"></div>
+        </div>
+        <div class="actions">
+          <a id="dl-docx" class="btn" href="#">Download report (.docx)</a>
+          <a id="dl-md" class="btn ghost" href="#">Markdown</a>
+        </div>
+      </div>
+      <div id="stats" class="stats"></div>
+      <div id="progress" class="card progress" hidden>
+        <div class="progress-head"><span class="spinner"></span> <b id="stage"></b></div>
+        <ol id="events" class="events"></ol>
+      </div>
+
+      <nav class="tabs" id="tabs">
+        <button data-tab="brief" class="active">Brief</button>
+        <button data-tab="evidence">Evidence</button>
+        <button data-tab="graph">Stakeholder graph</button>
+        <button data-tab="ask">Ask</button>
+        <button data-tab="gaps">Gaps &amp; conflicts</button>
+        <button data-tab="sources">Sources &amp; permissions</button>
+        <button data-tab="workflow">How it works</button>
+      </nav>
+
+      <div class="tab" id="tab-brief"></div>
+      <div class="tab" id="tab-evidence" hidden>
+        <div class="filters">
+          <select id="f-dim"><option value="">All dimensions</option></select>
+          <select id="f-verdict">
+            <option value="verified">Verified only</option>
+            <option value="">All incl. rejected</option>
+            <option value="unsupported">Rejected only</option>
+          </select>
+          <label class="check"><input type="checkbox" id="f-city"> City-level only</label>
+          <input id="f-q" placeholder="Filter text…">
+        </div>
+        <div id="claims"></div>
+      </div>
+      <div class="tab" id="tab-graph" hidden>
+        <p class="muted small">Entities and relations extracted by Graphiti from fact-checked claims only. Click a node or edge to see its facts and sources.</p>
+        <div class="graph-wrap"><div id="graph"></div><div id="graph-side" class="graph-side"></div></div>
+      </div>
+      <div class="tab" id="tab-ask" hidden>
+        <div id="chat" class="chat"></div>
+        <form id="ask" class="ask">
+          <input name="q" placeholder="Ask about this city, e.g. Who leads the health department? What hypertension programmes exist?" autocomplete="off">
+          <button class="primary">Ask</button>
+        </form>
+        <p class="muted small">Answers use the knowledge graph, verified claims and source passages for this city only. Every sentence cites its evidence; if nothing supports an answer, it says so.</p>
+      </div>
+      <div class="tab" id="tab-gaps" hidden></div>
+      <div class="tab" id="tab-sources" hidden></div>
+      <div class="tab" id="tab-workflow" hidden></div>
+    </section>
+  </main>
+
+  <aside id="drawer" class="drawer" hidden>
+    <button class="close" id="drawer-close" aria-label="Close">×</button>
+    <div id="drawer-body"></div>
+  </aside>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>

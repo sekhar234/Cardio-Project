@@ -414,31 +414,44 @@ async def build_graph_node(state: ResearchState, config: RunnableConfig) -> Rese
     added = failed = edges = 0
     # Sequential on purpose: Graphiti resolves entities against what is already in the graph,
     # so ordering episodes (most credible sources first) improves deduplication.
+    # Large sources are split into episodes of at most GRAPH_CLAIMS_PER_EPISODE claims: smaller
+    # prompts are faster, fail less, and a failure loses less of the graph.
+    per_ep = settings.graph_claims_per_episode
     for sid in sorted(by_src, key=lambda k: (sources[k].credibility_tier, sources[k].domain)):
         src, cs = sources[sid], by_src[sid]
-        lines = []
-        for c in cs:
-            geo = f" (applies to {c.geography_level} level: {c.geography_name or country}; not city-specific)" \
-                if c.not_city_level else ""
-            lines.append(f"- {c.statement}{geo}")
-        body = (f"Source: {src.title or src.domain} ({src.url}).\n"
-                f"Fact-checked statements relevant to {city}, {country}:\n" + "\n".join(lines))
-        try:
-            res = await d.graph.add_source_episode(city_slug=state["city_slug"], name=f"{src.domain}: {src.title}",
-                                                   body=body, source_url=src.url, reference_time=_ref_time(src))
+        for part, chunk in enumerate([cs[i:i + per_ep] for i in range(0, len(cs), per_ep)], 1):
+            lines = []
+            for c in chunk:
+                geo = f" (applies to {c.geography_level} level: {c.geography_name or country}; not city-specific)" \
+                    if c.not_city_level else ""
+                lines.append(f"- {c.statement}{geo}")
+            # The source URL/title go in source_description, not the body, so page titles
+            # ("Terms & Conditions ...") are not mistaken for entities.
+            body = f"Fact-checked statements relevant to {city}, {country}:\n" + "\n".join(lines)
+            res, last_exc = None, None
+            for attempt in (1, 2):
+                try:
+                    res = await d.graph.add_source_episode(
+                        city_slug=state["city_slug"], name=f"{src.domain} #{part}", body=body,
+                        source_url=src.url, reference_time=_ref_time(src))
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    last_exc = exc
+                    log.warning("graph episode attempt %d failed for %s: %s", attempt, src.domain, exc)
+            if res is None:
+                failed += 1
+                await db.log_event(run_id, "build_graph",
+                                   f"Graph episode failed for {src.domain} (part {part}): {last_exc}"[:400], "warning")
+                continue
             async with db.session() as s:
                 s.add(db.GraphEpisode(episode_uuid=res["episode_uuid"], run_id=run_id, source_id=sid,
-                                      city_slug=state["city_slug"], claim_ids=[c.id for c in cs],
+                                      city_slug=state["city_slug"], claim_ids=[c.id for c in chunk],
                                       n_nodes=res["n_nodes"], n_edges=res["n_edges"]))
                 await s.commit()
             added += 1
             edges += res["n_edges"]
             await db.log_event(run_id, "build_graph", f"Graph: +{res['n_nodes']} entities, +{res['n_edges']} "
-                                                      f"relations from {src.domain}")
-        except Exception as exc:  # noqa: BLE001
-            failed += 1
-            log.exception("graph episode failed")
-            await db.log_event(run_id, "build_graph", f"Graph episode failed for {src.domain}: {exc}"[:400], "warning")
+                                                      f"relations from {src.domain} (part {part})")
     status = "ready" if added and not failed else ("partial" if added else "failed")
     await db.set_stage(run_id, "knowledge graph", graph_status=status)
     await db.log_event(run_id, "build_graph", f"Knowledge graph {status}: {added} source episodes, {edges} relations")

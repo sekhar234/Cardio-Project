@@ -44,7 +44,7 @@ class Settings:
     model_fallbacks: list[str] = field(
         default_factory=lambda: os.getenv("MODEL_FALLBACKS", "gpt-5-mini,gpt-4.1-mini,gpt-4o-mini").split(",")
     )
-    graph_model: str = field(default_factory=lambda: os.getenv("GRAPH_MODEL", "gpt-5-mini"))
+    graph_model: str = field(default_factory=lambda: os.getenv("GRAPH_MODEL", "gpt-4.1-mini"))
     graph_small_model: str = field(default_factory=lambda: os.getenv("GRAPH_SMALL_MODEL", "gpt-4.1-nano"))
     embedding_model: str = field(default_factory=lambda: os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"))
     embedding_dim: int = field(default_factory=lambda: int(os.getenv("EMBEDDING_DIM", "1536")))
@@ -69,6 +69,7 @@ class Settings:
     max_sources_per_round: int = field(default_factory=lambda: int(os.getenv("MAX_SOURCES_PER_ROUND", "18")))
     max_research_rounds: int = field(default_factory=lambda: int(os.getenv("MAX_RESEARCH_ROUNDS", "2")))
     max_source_chars: int = field(default_factory=lambda: int(os.getenv("MAX_SOURCE_CHARS", "14000")))
+    graph_claims_per_episode: int = field(default_factory=lambda: int(os.getenv("GRAPH_CLAIMS_PER_EPISODE", "8")))
     llm_concurrency: int = field(default_factory=lambda: int(os.getenv("LLM_CONCURRENCY", "6")))
     fetch_timeout_s: float = field(default_factory=lambda: float(os.getenv("FETCH_TIMEOUT_S", "20")))
 

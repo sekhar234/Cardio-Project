@@ -98,15 +98,19 @@ class GraphStore:
         from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
         from graphiti_core.llm_client.config import LLMConfig
         from graphiti_core.llm_client.openai_client import OpenAIClient
+        from openai import AsyncOpenAI
+
+        # Graph extraction prompts are long; the SDK default timeout caused episode failures in production.
+        oa = AsyncOpenAI(api_key=settings.openai_api_key, timeout=300, max_retries=3)
 
         llm_cfg = LLMConfig(api_key=settings.openai_api_key, model=settings.graph_model,
                             small_model=settings.graph_small_model)
         self.g = Graphiti(
             graph_driver=Neo4jDriver(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password,
                                      database=settings.neo4j_database),
-            llm_client=OpenAIClient(config=llm_cfg),
+            llm_client=OpenAIClient(config=llm_cfg, client=oa),
             embedder=OpenAIEmbedder(OpenAIEmbedderConfig(api_key=settings.openai_api_key,
-                                                         embedding_model=settings.embedding_model)),
+                                                         embedding_model=settings.embedding_model), client=oa),
             cross_encoder=OpenAIRerankerClient(config=LLMConfig(api_key=settings.openai_api_key,
                                                                 model=settings.graph_small_model)),
             max_coroutines=4,

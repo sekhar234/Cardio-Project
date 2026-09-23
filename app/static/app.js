@@ -222,32 +222,183 @@ $("#drawer-close").onclick = () => $("#drawer").hidden = true;
 
 /* ---------- graph ---------- */
 const TYPE_COLORS = { Person: "#c8102e", Organization: "#0f766e", Programme: "#175cd3", Policy: "#5925dc", Place: "#667085", HealthCondition: "#b54708", Entity: "#98a2b3" };
+const TYPE_LABEL = { Person: "People", Organization: "Organisations", Programme: "Programmes", Policy: "Policies", Place: "Places", HealthCondition: "Conditions", Entity: "Other" };
+const G = { net: null, nodes: null, edges: null, data: null, byId: {}, adj: {}, hiddenTypes: new Set(), selected: null, hops: 0, labels: false, superseded: true };
+
+function hexA(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
+
 async function renderGraph() {
   S.graphLoaded = true;
+  const box = $("#graph");
+  box.innerHTML = `<div class="empty"><span class="spinner"></span> Loading knowledge graph…</div>`;
   const g = await api(`/api/runs/${S.run.id}/graph`);
-  if (!g.enabled || g.error || !g.nodes.length) { $("#graph").innerHTML = `<div class="empty">${esc(g.error || (g.enabled ? "The graph is empty for this city." : "Graph store not configured."))}</div>`; return; }
-  if (!window.vis) { $("#graph").innerHTML = `<div class="empty">Graph library failed to load.</div>`; return; }
+  if (!g.enabled || g.error || !g.nodes.length) { box.innerHTML = `<div class="empty">${esc(g.error || (g.enabled ? "The graph is empty for this city." : "Graph store not configured."))}</div>`; return; }
+  if (!window.vis) { box.innerHTML = `<div class="empty">Graph library failed to load.</div>`; return; }
+  box.innerHTML = "";
+  G.data = g; G.byId = Object.fromEntries(g.nodes.map((n) => [n.id, n])); G.adj = {};
+  g.nodes.forEach((n) => { G.adj[n.id] = []; });
+  g.edges.forEach((e) => { (G.adj[e.source] ||= []).push(e); (G.adj[e.target] ||= []).push(e); });
+  G.selected = null; G.hops = 0;
+
+  // toolbar
+  const counts = {}; g.nodes.forEach((n) => counts[n.type] = (counts[n.type] || 0) + 1);
+  let tb = $("#graph-toolbar");
+  if (!tb) { $(".graph-wrap").insertAdjacentHTML("beforebegin", `<div id="graph-toolbar" class="graph-toolbar"></div>`); tb = $("#graph-toolbar"); }
+  tb.innerHTML = `
+    <div class="gt-row">
+      <input id="g-search" list="g-names" placeholder="Find a person, organisation, programme…" autocomplete="off">
+      <datalist id="g-names">${g.nodes.map((n) => `<option value="${esc(n.name)}">`).join("")}</datalist>
+      <div class="seg" id="g-hops" title="How much of the network to show around the selected entity">
+        <button data-h="0" class="on">Whole graph</button><button data-h="1">1 step</button><button data-h="2">2 steps</button>
+      </div>
+      <label class="check"><input type="checkbox" id="g-labels"> Relation labels</label>
+      <label class="check"><input type="checkbox" id="g-sup" checked> Superseded facts</label>
+      <label class="check"><input type="checkbox" id="g-phys" checked> Live layout</label>
+      <button class="ghost-sm" id="g-fit" title="Fit to screen">Fit</button>
+      <button class="ghost-sm" id="g-png" title="Download image">PNG</button>
+      <button class="ghost-sm" id="g-full" title="Full screen">⤢</button>
+    </div>
+    <div class="gt-row chips">${Object.keys(TYPE_COLORS).filter((t) => counts[t]).map((t) =>
+      `<button class="chip on" data-type="${t}" style="--c:${TYPE_COLORS[t]}"><i></i>${TYPE_LABEL[t]} <b>${counts[t]}</b></button>`).join("")}
+      <span class="muted small">Click a type to show/hide it · click a node to highlight its network · double-click to zoom</span></div>`;
+
   const deg = {}; g.edges.forEach((e) => { deg[e.source] = (deg[e.source] || 0) + 1; deg[e.target] = (deg[e.target] || 0) + 1; });
-  const nodes = new vis.DataSet(g.nodes.map((n) => ({ id: n.id, label: n.name.length > 28 ? n.name.slice(0, 26) + "…" : n.name, title: `${n.type}: ${n.name}`, color: TYPE_COLORS[n.type] || TYPE_COLORS.Entity, value: 1 + (deg[n.id] || 0), font: { color: "#1b2330", size: 12 } })));
-  const edges = new vis.DataSet(g.edges.map((e) => ({ id: e.id, from: e.source, to: e.target, title: e.fact, arrows: "to", color: { color: e.invalid_at ? "#fda29b" : "#c0c7d2" }, dashes: !!e.invalid_at })));
-  const net = new vis.Network($("#graph"), { nodes, edges }, { nodes: { shape: "dot", scaling: { min: 8, max: 28 } }, physics: { stabilization: { iterations: 150 }, barnesHut: { springLength: 140 } }, interaction: { hover: true } });
-  const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
-  const legend = Object.entries(TYPE_COLORS).map(([t, c]) => `<span class="badge" style="background:${c}1a;color:${c}">${t}</span>`).join(" ");
-  $("#graph-side").innerHTML = `<p>${legend}</p><p class="muted">${g.nodes.length} entities · ${g.edges.length} relations. Select a node or edge.</p>`;
-  const srcLinks = (e) => (e.sources || []).map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.domain)}</a>`).join(", ") || "<i>source not traceable</i>";
-  net.on("click", (p) => {
-    if (p.nodes.length) {
-      const n = byId[p.nodes[0]], rel = g.edges.filter((e) => e.source === n.id || e.target === n.id);
-      $("#graph-side").innerHTML = `<h3>${esc(n.name)}</h3><span class="badge grey">${esc(n.type)}</span>
-        ${Object.entries(n.attributes || {}).map(([k, v]) => `<div class="small"><b>${esc(k)}:</b> ${esc(v)}</div>`).join("")}
-        <p class="small">${esc(n.summary)}</p><h3>Facts (${rel.length})</h3>
-        ${rel.map((e) => `<div class="claim"><div>${esc(e.fact)}</div>${e.invalid_at ? '<span class="badge partial">superseded</span>' : ""}<div class="small muted">Sources: ${srcLinks(e)}</div></div>`).join("")}`;
-    } else if (p.edges.length) {
-      const e = g.edges.find((x) => x.id === p.edges[0]);
-      $("#graph-side").innerHTML = `<h3>${esc(e.relation)}</h3><p>${esc(e.fact)}</p><div class="small muted">Sources: ${srcLinks(e)}</div>`;
-    }
+  G.nodes = new vis.DataSet(g.nodes.map((n) => ({
+    id: n.id, label: n.name.length > 30 ? n.name.slice(0, 28) + "…" : n.name, type: n.type,
+    title: `${TYPE_LABEL[n.type] || n.type}: ${n.name}\n${deg[n.id] || 0} connection(s)`,
+    value: 1 + (deg[n.id] || 0), baseColor: TYPE_COLORS[n.type] || TYPE_COLORS.Entity,
+    color: { background: TYPE_COLORS[n.type] || TYPE_COLORS.Entity, border: "#fff", highlight: { background: TYPE_COLORS[n.type] || TYPE_COLORS.Entity, border: "#1b2330" }, hover: { background: TYPE_COLORS[n.type] || TYPE_COLORS.Entity, border: "#1b2330" } },
+    font: { color: "#1b2330", size: 12, strokeWidth: 3, strokeColor: "#fff" },
+  })));
+  G.edges = new vis.DataSet(g.edges.map((e) => ({
+    id: e.id, from: e.source, to: e.target, title: e.fact, relLabel: e.relation.replaceAll("_", " ").toLowerCase(),
+    arrows: { to: { enabled: true, scaleFactor: 0.5 } }, superseded: !!e.invalid_at, dashes: !!e.invalid_at,
+    color: { color: e.invalid_at ? "#fda29b" : "#c0c7d2", highlight: "#1b2330", hover: "#475467" },
+    font: { size: 10, color: "#475467", strokeWidth: 3, strokeColor: "#fff", align: "middle" }, smooth: { type: "continuous" },
+  })));
+  G.net = new vis.Network(box, { nodes: G.nodes, edges: G.edges }, {
+    nodes: { shape: "dot", scaling: { min: 8, max: 30, label: { enabled: true, min: 11, max: 18, drawThreshold: 6 } } },
+    edges: { selectionWidth: 2, hoverWidth: 1.5 },
+    physics: { stabilization: { iterations: 200 }, barnesHut: { springLength: 150, gravitationalConstant: -6000, avoidOverlap: 0.2 } },
+    interaction: { hover: true, tooltipDelay: 120, navigationButtons: true, keyboard: { enabled: true, bindToWindow: false }, multiselect: false },
   });
+  G.net.once("stabilizationIterationsDone", () => G.net.fit({ animation: { duration: 500 } }));
+
+  G.net.on("click", (p) => {
+    if (p.nodes.length) selectNode(p.nodes[0]);
+    else if (p.edges.length) showEdge(p.edges[0]);
+    else clearSelection();
+  });
+  G.net.on("doubleClick", (p) => { if (p.nodes.length) G.net.focus(p.nodes[0], { scale: 1.4, animation: { duration: 500 } }); });
+  G.net.on("hoverNode", () => box.style.cursor = "pointer");
+  G.net.on("blurNode", () => box.style.cursor = "default");
+
+  $("#g-search").addEventListener("change", (ev) => {
+    const q = ev.target.value.trim().toLowerCase();
+    const n = g.nodes.find((x) => x.name.toLowerCase() === q) || g.nodes.find((x) => x.name.toLowerCase().includes(q));
+    if (n) { G.hiddenTypes.delete(n.type); syncChips(); selectNode(n.id); G.net.focus(n.id, { scale: 1.3, animation: { duration: 500 } }); }
+  });
+  $$("#g-hops button").forEach((b) => b.onclick = () => { G.hops = +b.dataset.h; $$("#g-hops button").forEach((x) => x.classList.toggle("on", x === b)); applyView(); });
+  $$(".chips .chip").forEach((c) => c.onclick = () => { const t = c.dataset.type; G.hiddenTypes.has(t) ? G.hiddenTypes.delete(t) : G.hiddenTypes.add(t); syncChips(); applyView(); });
+  $("#g-labels").onchange = (ev) => { G.labels = ev.target.checked; applyView(); };
+  $("#g-sup").onchange = (ev) => { G.superseded = ev.target.checked; applyView(); };
+  $("#g-phys").onchange = (ev) => G.net.setOptions({ physics: { enabled: ev.target.checked } });
+  $("#g-fit").onclick = () => G.net.fit({ animation: { duration: 400 } });
+  $("#g-png").onclick = () => { const c = $("#graph canvas"); if (!c) return; const a = document.createElement("a"); a.download = `${S.run.city}-knowledge-graph.png`; a.href = c.toDataURL("image/png"); a.click(); };
+  $("#g-full").onclick = () => { $("#tab-graph").classList.toggle("fullscreen"); setTimeout(() => { G.net.redraw(); G.net.fit(); }, 50); };
+  graphOverview();
 }
+
+function syncChips() { $$(".chips .chip").forEach((c) => c.classList.toggle("on", !G.hiddenTypes.has(c.dataset.type))); }
+
+function neighbourhood(id, hops) {
+  const keep = new Set([id]); let frontier = [id];
+  for (let i = 0; i < hops; i++) {
+    const next = [];
+    frontier.forEach((n) => (G.adj[n] || []).forEach((e) => { const o = e.source === n ? e.target : e.source; if (!keep.has(o)) { keep.add(o); next.push(o); } }));
+    frontier = next;
+  }
+  return keep;
+}
+
+function applyView() {
+  const sel = G.selected;
+  const scope = sel && G.hops ? neighbourhood(sel, G.hops) : null;   // restrict to N-step network
+  const near = sel ? neighbourhood(sel, 1) : null;                    // highlight direct neighbours
+  G.nodes.update(G.nodes.get().map((n) => {
+    const hidden = G.hiddenTypes.has(n.type) && n.id !== sel || (scope && !scope.has(n.id));
+    const dim = near && !near.has(n.id);
+    const c = dim ? hexA(n.baseColor, 0.18) : n.baseColor;
+    return { id: n.id, hidden, color: { background: c, border: n.id === sel ? "#1b2330" : "#fff", highlight: { background: n.baseColor, border: "#1b2330" }, hover: { background: n.baseColor, border: "#1b2330" } },
+      borderWidth: n.id === sel ? 3 : 1, font: { color: dim ? "rgba(27,35,48,.25)" : "#1b2330", size: 12, strokeWidth: 3, strokeColor: "#fff" } };
+  }));
+  G.edges.update(G.edges.get().map((e) => {
+    const touches = sel && (e.from === sel || e.to === sel);
+    const dim = sel && !touches;
+    return { id: e.id, hidden: !G.superseded && e.superseded, label: (G.labels || touches) ? e.relLabel : undefined,
+      color: { color: dim ? "rgba(192,199,210,.2)" : (e.superseded ? "#fda29b" : touches ? "#475467" : "#c0c7d2"), highlight: "#1b2330", hover: "#475467" },
+      width: touches ? 2 : 1 };
+  }));
+}
+
+function clearSelection() { G.selected = null; applyView(); graphOverview(); }
+
+function srcLinks(e) { return (e.sources || []).map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.domain)}</a>`).join(", ") || "<i>source not traceable</i>"; }
+
+function graphOverview() {
+  const g = G.data;
+  const top = [...g.nodes].sort((a, b) => (G.adj[b.id] || []).length - (G.adj[a.id] || []).length).slice(0, 8);
+  $("#graph-side").innerHTML = `<h3>${esc(S.run.city)} network</h3>
+    <p class="muted small">${g.nodes.length} entities · ${g.edges.length} relations, built only from fact-checked claims.</p>
+    <h3>Most connected</h3>
+    ${top.map((n) => `<button class="nodelink" data-node="${n.id}"><i style="background:${TYPE_COLORS[n.type] || TYPE_COLORS.Entity}"></i>${esc(n.name)} <span class="muted small">${(G.adj[n.id] || []).length}</span></button>`).join("")}
+    <p class="muted small" style="margin-top:12px">Tip: pick "1 step" or "2 steps" above, then click an entity to see just its network.</p>`;
+}
+
+function selectNode(id) {
+  G.selected = id; applyView();
+  const n = G.byId[id], rel = G.adj[id] || [];
+  const groups = {};
+  rel.forEach((e) => { (groups[e.relation] ||= []).push(e); });
+  $("#graph-side").innerHTML = `
+    <button class="ghost-sm" id="g-back">← Overview</button>
+    <h3 style="margin-top:10px">${esc(n.name)}</h3>
+    <span class="badge" style="background:${hexA(TYPE_COLORS[n.type] || TYPE_COLORS.Entity, .12)};color:${TYPE_COLORS[n.type] || TYPE_COLORS.Entity}">${esc(TYPE_LABEL[n.type] || n.type)}</span>
+    ${Object.entries(n.attributes || {}).map(([k, v]) => `<div class="small"><b>${esc(k.replaceAll("_", " "))}:</b> ${esc(v)}</div>`).join("")}
+    ${n.summary ? `<p class="small">${esc(n.summary)}</p>` : ""}
+    <div class="gs-actions"><button class="ghost-sm" id="g-ask">Ask about ${esc(n.name.length > 24 ? n.name.slice(0, 22) + "…" : n.name)}</button>
+      <button class="ghost-sm" id="g-focus">Zoom here</button></div>
+    <h3>Connections (${rel.length})</h3>
+    ${Object.entries(groups).map(([r, es]) => `<div class="relgroup"><div class="relname">${esc(r.replaceAll("_", " ").toLowerCase())}</div>
+      ${es.map((e) => { const other = G.byId[e.source === id ? e.target : e.source]; return `<div class="fact">
+        ${other ? `<button class="nodelink" data-node="${other.id}"><i style="background:${TYPE_COLORS[other.type] || TYPE_COLORS.Entity}"></i>${esc(other.name)}</button>` : ""}
+        <div class="small">${esc(e.fact)}</div>${e.invalid_at ? '<span class="badge partial">superseded</span>' : ""}
+        <div class="small muted">Source: ${srcLinks(e)}</div></div>`; }).join("")}</div>`).join("")}`;
+  $("#g-back").onclick = clearSelection;
+  $("#g-focus").onclick = () => G.net.focus(id, { scale: 1.4, animation: { duration: 500 } });
+  $("#g-ask").onclick = () => { showTab("ask"); const i = $("#ask input"); i.value = `What does the evidence say about ${n.name}?`; i.focus(); };
+}
+
+function showEdge(eid) {
+  const e = G.data.edges.find((x) => x.id === eid); if (!e) return;
+  const a = G.byId[e.source], b = G.byId[e.target];
+  $("#graph-side").innerHTML = `<button class="ghost-sm" id="g-back">← Overview</button>
+    <h3 style="margin-top:10px">${esc(e.relation.replaceAll("_", " ").toLowerCase())}</h3>
+    <div class="edgeends">${a ? `<button class="nodelink" data-node="${a.id}"><i style="background:${TYPE_COLORS[a.type] || TYPE_COLORS.Entity}"></i>${esc(a.name)}</button>` : ""} →
+      ${b ? `<button class="nodelink" data-node="${b.id}"><i style="background:${TYPE_COLORS[b.type] || TYPE_COLORS.Entity}"></i>${esc(b.name)}</button>` : ""}</div>
+    <p>${esc(e.fact)}</p>${e.invalid_at ? '<span class="badge partial">superseded by a newer fact</span>' : ""}
+    <div class="small muted">Source: ${srcLinks(e)}</div>`;
+  $("#g-back").onclick = clearSelection;
+}
+
+document.addEventListener("click", (ev) => {
+  const b = ev.target.closest(".nodelink[data-node]");
+  if (!b || !G.net) return;
+  const id = b.dataset.node;
+  G.hiddenTypes.delete(G.byId[id]?.type); syncChips();
+  selectNode(id); G.net.focus(id, { scale: 1.2, animation: { duration: 500 } });
+});
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && $("#tab-graph").classList.contains("fullscreen")) { $("#tab-graph").classList.remove("fullscreen"); G.net?.fit(); } });
 
 /* ---------- chat ---------- */
 function renderAnswer(text) {

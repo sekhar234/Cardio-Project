@@ -15,6 +15,9 @@ from typing import Any
 from ..llm import LLMProtocol
 from ..taxonomy import DIMENSIONS
 
+# For these dimensions national data alone does not describe the city.
+CITY_LEVEL_REQUIRED = {"cvd_burden", "risk_factors", "stakeholders"}
+
 SYSTEM = """You audit research coverage. You decide which research questions are answered by a set of
 verified claims. A question is answered only if a claim directly answers it; related context is not enough.
 Data about the country (not the city) only partially answers a city question - mark it 'partial'."""
@@ -60,8 +63,11 @@ async def assess(llm: LLMProtocol, city: str, claims: list[dict[str, Any]]) -> d
             qs.append({"question": q, "status": status if status in ("answered", "partial", "missing") else "missing"})
         n = counts.get(d.key, 0)
         missing = [q["question"] for q in qs if q["status"] == "missing"]
+        city_n = city_level.get(d.key, 0)
         if n == 0:
             status = "missing"
+        elif d.key in CITY_LEVEL_REQUIRED and city_n == 0:
+            status = "thin"  # only national/regional data: useful context, but not the city's picture
         elif n >= d.min_supported_claims and len(missing) <= len(qs) // 2:
             status = "sufficient"
         else:

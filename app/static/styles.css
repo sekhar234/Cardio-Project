@@ -95,3 +95,28 @@ button:disabled { opacity: .6; cursor: wait; }
   .layout { grid-template-columns: 1fr; padding: 12px; }
   .graph-wrap { grid-template-columns: 1fr; }
 }
+
+/* graph explorer */
+.graph-toolbar { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; }
+.gt-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.gt-row input#g-search { flex: 1; min-width: 220px; margin: 0; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: none; border-radius: 0; padding: 6px 10px; font-size: 12px; background: #fff; color: var(--muted); }
+.seg button.on { background: var(--ink); color: #fff; }
+.ghost-sm { font-size: 12px; padding: 5px 10px; background: #fff; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); }
+.chips { gap: 6px; }
+.chip { font-size: 12px; font-weight: 500; padding: 4px 10px; border-radius: 99px; border: 1px solid var(--line); background: #fff; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+.chip i { width: 10px; height: 10px; border-radius: 50%; background: var(--c); opacity: .3; display: inline-block; }
+.chip.on { color: var(--ink); border-color: var(--c); } .chip.on i { opacity: 1; }
+.chip b { font-weight: 600; color: var(--muted); }
+.nodelink { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: none; background: none; padding: 5px 6px; border-radius: 6px; font-weight: 500; font-size: 13px; }
+.nodelink:hover { background: var(--bg); }
+.nodelink i { width: 10px; height: 10px; border-radius: 50%; flex: none; display: inline-block; }
+.edgeends .nodelink { display: inline-flex; width: auto; }
+.relgroup { margin: 10px 0; } .relname { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
+.fact { border-left: 2px solid var(--line); padding: 2px 0 6px 8px; margin-bottom: 6px; }
+.fact .nodelink { padding: 2px 0; }
+.gs-actions { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
+#tab-graph.fullscreen { position: fixed; inset: 0; z-index: 30; background: var(--bg); padding: 16px; overflow: auto; }
+#tab-graph.fullscreen #graph, #tab-graph.fullscreen .graph-side { height: calc(100vh - 150px); max-height: none; }
+div.vis-tooltip { font: 12px/1.4 Inter, system-ui, sans-serif; background: #1b2330; color: #fff; border: none; border-radius: 6px; padding: 6px 8px; max-width: 320px; white-space: normal; }

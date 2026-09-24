@@ -39,7 +39,7 @@ class Settings:
     research_model: str = field(default_factory=lambda: os.getenv("RESEARCH_MODEL", "gpt-5-mini"))
     # The fact checker deliberately runs on a *different* model than the extractor, with its own
     # prompt and no access to the extractor's reasoning, so errors are less likely to be correlated.
-    checker_model: str = field(default_factory=lambda: os.getenv("CHECKER_MODEL", "gpt-4.1"))
+    checker_model: str = field(default_factory=lambda: os.getenv("CHECKER_MODEL", "gpt-4.1-mini"))
     # Model fallbacks, tried in order if a configured model is unavailable on the account.
     model_fallbacks: list[str] = field(
         default_factory=lambda: os.getenv("MODEL_FALLBACKS", "gpt-5-mini,gpt-4.1-mini,gpt-4o-mini").split(",")
@@ -65,12 +65,13 @@ class Settings:
     neo4j_database: str = field(default_factory=lambda: os.getenv("NEO4J_DATABASE", "neo4j"))
 
     # Research budget: the knobs that trade depth for time and cost.
-    max_queries_per_round: int = field(default_factory=lambda: int(os.getenv("MAX_QUERIES_PER_ROUND", "16")))
-    max_sources_per_round: int = field(default_factory=lambda: int(os.getenv("MAX_SOURCES_PER_ROUND", "18")))
+    max_queries_per_round: int = field(default_factory=lambda: int(os.getenv("MAX_QUERIES_PER_ROUND", "14")))
+    max_sources_per_round: int = field(default_factory=lambda: int(os.getenv("MAX_SOURCES_PER_ROUND", "14")))
     max_research_rounds: int = field(default_factory=lambda: int(os.getenv("MAX_RESEARCH_ROUNDS", "2")))
     max_source_chars: int = field(default_factory=lambda: int(os.getenv("MAX_SOURCE_CHARS", "14000")))
+    graph_max_claims: int = field(default_factory=lambda: int(os.getenv("GRAPH_MAX_CLAIMS", "64")))
     graph_claims_per_episode: int = field(default_factory=lambda: int(os.getenv("GRAPH_CLAIMS_PER_EPISODE", "8")))
-    llm_concurrency: int = field(default_factory=lambda: int(os.getenv("LLM_CONCURRENCY", "6")))
+    llm_concurrency: int = field(default_factory=lambda: int(os.getenv("LLM_CONCURRENCY", "4")))
     fetch_timeout_s: float = field(default_factory=lambda: float(os.getenv("FETCH_TIMEOUT_S", "20")))
 
     user_agent: str = field(

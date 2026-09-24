@@ -78,9 +78,10 @@ async function openRun(id) {
   $("#run-title").textContent = `${run.city}${run.country ? ", " + run.country : ""}`;
   $("#dl-docx").href = `/api/runs/${id}/report.docx`; $("#dl-md").href = `/api/runs/${id}/report.md`;
   renderHeader(run);
-  if (run.status === "running" || run.status === "queued") {
-    $("#progress").hidden = false; await pollEvents();
-    S.poll = setInterval(pollEvents, 3000);
+  S.dataLoaded = false;
+  if (run.status === "running" || run.status === "queued" || (run.status === "done" && run.graph_status === "building")) {
+    $("#progress").hidden = false; $(".spinner").style.display = ""; await pollEvents();
+    S.poll = setInterval(pollEvents, 4000);
   } else {
     $("#progress").hidden = run.status !== "failed";
     if (run.status === "failed") { await pollEvents(); $(".spinner").style.display = "none"; }
@@ -111,12 +112,19 @@ async function pollEvents() {
   }
   $("#events").scrollTop = 1e9;
   const run = await api(`/api/runs/${S.run.id}`);
-  $("#stage").textContent = run.status === "failed" ? "Failed" : `Working: ${run.stage || "queued"}`;
-  if (run.status === "done" || run.status === "failed") {
-    clearInterval(S.poll); S.run = run; renderHeader(run); loadRuns();
-    if (run.status === "done") $("#progress").hidden = true; else $(".spinner").style.display = "none";
+  const building = run.status === "done" && run.graph_status === "building";
+  $("#stage").textContent = run.status === "failed" ? "Failed" : building
+    ? "Brief ready. Building the knowledge graph (the Stakeholder graph tab fills in as it grows)…" : `Working: ${run.stage || "queued"}`;
+  if (run.status === "done" && !S.dataLoaded) {           // brief is ready: show it immediately
+    S.run = run; renderHeader(run); loadRuns(); S.dataLoaded = true;
     await loadRunData(); showTab(currentTab());
   }
+  if ((run.status === "done" && !building) || run.status === "failed") {
+    clearInterval(S.poll); S.run = run; renderHeader(run); loadRuns();
+    if (run.status === "done") $("#progress").hidden = true; else $(".spinner").style.display = "none";
+    if (!S.dataLoaded) { S.dataLoaded = true; await loadRunData(); }
+    S.graphLoaded = false; showTab(currentTab());
+  } else if (building) { S.run.graph_status = run.graph_status; }
 }
 
 async function loadRunData() {
@@ -130,7 +138,7 @@ function currentTab() { return ($(".tabs button.active") || {}).dataset?.tab || 
 function showTab(t) {
   $$(".tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === t));
   $$(".tab").forEach((d) => d.hidden = d.id !== "tab-" + t);
-  if (t === "graph" && !S.graphLoaded && S.run?.status === "done") renderGraph();
+  if (t === "graph" && (!S.graphLoaded || S.run?.graph_status === "building") && S.run?.status === "done") renderGraph();
   if (t === "workflow") renderWorkflow();
 }
 $$(".tabs button").forEach((b) => b.onclick = () => showTab(b.dataset.tab));
@@ -232,7 +240,9 @@ async function renderGraph() {
   const box = $("#graph");
   box.innerHTML = `<div class="empty"><span class="spinner"></span> Loading knowledge graph…</div>`;
   const g = await api(`/api/runs/${S.run.id}/graph`);
-  if (!g.enabled || g.error || !g.nodes.length) { box.innerHTML = `<div class="empty">${esc(g.error || (g.enabled ? "The graph is empty for this city." : "Graph store not configured."))}</div>`; return; }
+  const buildingNote = S.run.graph_status === "building"
+    ? `<div class="empty"><span class="spinner"></span> The knowledge graph is still being built from the verified claims. Reopen this tab in a minute to see more.</div>` : "";
+  if (!g.enabled || g.error || !g.nodes.length) { box.innerHTML = buildingNote || `<div class="empty">${esc(g.error || (g.enabled ? "The graph is empty for this city." : "Graph store not configured."))}</div>`; return; }
   if (!window.vis) { box.innerHTML = `<div class="empty">Graph library failed to load.</div>`; return; }
   box.innerHTML = "";
   G.data = g; G.byId = Object.fromEntries(g.nodes.map((n) => [n.id, n])); G.adj = {};

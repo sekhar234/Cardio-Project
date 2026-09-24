@@ -32,7 +32,7 @@ matters, makes coverage measurable and gaps nameable.
 ## 3. Agent architecture (LangGraph)
 
 ```
-plan → search → crawl_gate → fetch → extract → fact_check → assess_coverage ─┬─> resolve_conflicts → build_graph → synthesize → finalize
+plan → search → crawl_gate → fetch → extract → fact_check → assess_coverage ─┬─> resolve_conflicts → synthesize → finalize (brief ready) → build_graph
           ^                                                                   │
           └──────────────────── followup_plan <──── (gaps and budget left) ───┘
 ```
@@ -48,7 +48,7 @@ plan → search → crawl_gate → fetch → extract → fact_check → assess_c
 | Coverage judge | Counts verified claims per dimension, maps them to key questions, names unanswered ones | No |
 | Follow-up planner | Targeted queries for the gaps (different angles, local language, survey names) | No |
 | Conflict resolver | Deterministic grouping by metric/geography/unit/year | No |
-| Graph builder | Writes verified claims to Graphiti, one episode per source | No (graph derived from verified claims) |
+| Graph builder | Writes verified *relational* claims (people, organisations, programmes, policies) to Graphiti in episodes of ≤8 claims per source. Runs after the brief is delivered, so the City Lead isn't kept waiting | No (graph derived from verified claims) |
 | Synthesiser | Writes the brief from verified claims only; a guard removes uncited bullets and numbers not in the cited claims | Wording only |
 
 **Consequences of fact checking in the workflow:**
@@ -134,7 +134,8 @@ it more likely that errors get caught. The deterministic layer catches the most 
 |---|---|---|
 | Rule-based crawlability (robots.txt + ToS list) rather than an LLM reading each ToS page | Deterministic, explainable, fast. Reading ToS pages would itself require crawling them | The ToS list is curated, not exhaustive |
 | Only fact-checked claims go to the graph | Keeps the graph trustworthy | Less recall; some true facts are dropped when the quote is noisy (e.g. PDF tables) |
-| One episode per source, sequential | Better entity resolution and provenance | Graph build is the slowest stage (~20–40 s per source) |
+| Graph built after the brief, sequentially, relational claims only (capped) | Brief in ~5–8 min; better entity resolution; statistics already live in Postgres/Qdrant | Graph tab fills in a few minutes after the brief |
+| Streamed downloads (4 MB cap), parsing off the event loop, limited concurrency | Fits a 512 MB instance; UI stays responsive during research | Very long PDFs are truncated |
 | Background task in the web process, not a job queue | Simple to deploy and demo | A restart interrupts a running job (it is marked "interrupted", never left hanging) |
 | No login; optional shared `ACCESS_CODE` | Enough to stop strangers spending the API budget | No per-user audit |
 | No JS-rendered pages (no headless browser) | Memory and time on a small instance | Some modern government sites give little text |

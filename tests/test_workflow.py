@@ -247,7 +247,8 @@ async def test_full_workflow(deps):
     # graph only receives verified claims
     graph_text = "\n".join(deps.graph.episodes)
     assert "John Smith" not in graph_text and "50000" not in graph_text
-    assert "not city-specific" in graph_text
+    # the graph holds relationships; statistics stay in Postgres/Qdrant
+    assert "Ana Pereira" in graph_text and "31.5%" not in graph_text
 
     # synthesis guard
     brief = run.brief
@@ -292,3 +293,28 @@ def test_workflow_graph_structure():
     m = workflow_mermaid()
     for node in ("crawl_gate", "fact_check", "assess_coverage", "followup_plan", "build_graph"):
         assert node in m
+
+
+@pytest.mark.asyncio
+async def test_fetcher_streams_with_byte_cap_and_honours_opt_out():
+    from app.tools.crawl import Fetcher
+
+    big = b"%PDF-1.4 " + b"x" * 20_000_000
+    html = ("<html><head><title>Health</title></head><body><article><p>"
+            + "Hypertension screening in Testville reached many adults. " * 20 + "</p></article></body></html>")
+
+    def handler(request: httpx.Request):
+        if request.url.path == "/big.pdf":
+            return httpx.Response(200, content=big, headers={"content-type": "application/pdf"})
+        if request.url.path == "/noai":
+            return httpx.Response(200, text=html, headers={"content-type": "text/html", "x-robots-tag": "noai"})
+        return httpx.Response(200, text=html, headers={"content-type": "text/html"})
+
+    f = Fetcher()
+    f.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    ok = await f.fetch("https://a.example.org/page")
+    assert ok.ok and "Hypertension screening" in ok.text
+    opt = await f.fetch("https://b.example.org/noai")
+    assert not opt.ok and "opts out" in opt.error
+    big_res = await f.fetch("https://c.example.org/big.pdf")  # must not load 20 MB, must not crash
+    assert not big_res.ok

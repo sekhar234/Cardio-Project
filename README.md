@@ -64,7 +64,7 @@ graph, brief or report, and chat refuses to answer without evidence.
 |---|---|---|
 | `RESEARCH_MODEL` | `gpt-5-mini` | Planner, extractor, coverage judge, synthesiser, chat |
 | `CHECKER_MODEL` | `gpt-4.1` | Independent fact checker (deliberately a different model) |
-| `GRAPH_MODEL` / `GRAPH_SMALL_MODEL` | `gpt-5-mini` / `gpt-4.1-nano` | Graphiti extraction |
+| `GRAPH_MODEL` / `GRAPH_SMALL_MODEL` | `gpt-4.1-mini` / `gpt-4.1-nano` | Graphiti extraction |
 | `MODEL_FALLBACKS` | `gpt-5-mini,gpt-4.1-mini,gpt-4o-mini` | Used if a model isn't available on the account |
 | `MAX_QUERIES_PER_ROUND` | 16 | Research breadth |
 | `MAX_SOURCES_PER_ROUND` | 18 | Pages fetched per round |

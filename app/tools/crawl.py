@@ -179,7 +179,7 @@ class FetcherProtocol(Protocol):
 
 
 class Fetcher:
-    MAX_BYTES = 6_000_000
+    MAX_BYTES = 4_000_000
 
     def __init__(self) -> None:
         self.client = httpx.AsyncClient(timeout=settings.fetch_timeout_s, follow_redirects=True,
@@ -194,29 +194,38 @@ class Fetcher:
             await asyncio.sleep(wait)
         self._last_hit[host] = time.monotonic()
         try:
-            r = await self.client.get(url)
+            # Stream with a hard byte cap: a single large PDF must not blow the instance's memory.
+            async with self.client.stream("GET", url) as r:
+                ctype = r.headers.get("content-type", "").split(";")[0].strip().lower()
+                res = FetchResult(False, final_url=str(r.url), status=r.status_code, content_type=ctype)
+                if r.status_code >= 400:
+                    res.error = f"HTTP {r.status_code}"
+                    return res
+                chunks, size = [], 0
+                async for chunk in r.aiter_bytes():
+                    chunks.append(chunk)
+                    size += len(chunk)
+                    if size >= self.MAX_BYTES:
+                        break
+                body = b"".join(chunks)[: self.MAX_BYTES]
+                del chunks
+                encoding = r.encoding
         except Exception as exc:  # noqa: BLE001
             return FetchResult(False, error=f"{type(exc).__name__}: {exc}"[:300])
-        ctype = r.headers.get("content-type", "").split(";")[0].strip().lower()
-        res = FetchResult(False, final_url=str(r.url), status=r.status_code, content_type=ctype)
-        if r.status_code >= 400:
-            res.error = f"HTTP {r.status_code}"
-            return res
         xrt = r.headers.get("x-robots-tag", "").lower()
         if any(t in xrt for t in OPT_OUT_TOKENS):
             res.error = f"Page opts out of automated use (X-Robots-Tag: {xrt})"
             return res
-        body = r.content[: self.MAX_BYTES]
         try:
             if "pdf" in ctype or url.lower().endswith(".pdf"):
-                res.text, res.title = extract_pdf(body)
+                res.text, res.title = await asyncio.to_thread(extract_pdf, body)
             else:
-                html = body.decode(r.encoding or "utf-8", errors="replace")
+                html = body.decode(encoding or "utf-8", errors="replace")
                 meta_robots = re.search(r'<meta[^>]+name=["\']robots["\'][^>]*content=["\']([^"\']+)', html, re.I)
                 if meta_robots and any(t in meta_robots.group(1).lower() for t in OPT_OUT_TOKENS):
                     res.error = f"Page opts out of automated use (meta robots: {meta_robots.group(1)})"
                     return res
-                res.text, res.title, res.published = extract_html(html, str(r.url))
+                res.text, res.title, res.published = await asyncio.to_thread(extract_html, html, str(r.url))
         except Exception as exc:  # noqa: BLE001
             res.error = f"Extraction failed: {type(exc).__name__}"
             return res
@@ -241,7 +250,7 @@ def extract_html(html: str, url: str) -> tuple[str, str, str]:
     return text, title, published
 
 
-def extract_pdf(data: bytes, max_pages: int = 40) -> tuple[str, str]:
+def extract_pdf(data: bytes, max_pages: int = 30) -> tuple[str, str]:
     from pypdf import PdfReader
 
     reader = PdfReader(io.BytesIO(data))

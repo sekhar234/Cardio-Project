@@ -46,6 +46,8 @@ async def lifespan(app: FastAPI):
     async with db.session() as s:
         for r in (await s.execute(select(db.Run).where(db.Run.status.in_(("running", "queued"))))).scalars():
             r.status, r.error, r.finished_at = "failed", "Interrupted by a service restart", db.now()
+        for r in (await s.execute(select(db.Run).where(db.Run.graph_status == "building"))).scalars():
+            r.graph_status, r.stage = "partial", "done"
         await s.commit()
     state["vectors"] = VectorStore()
     state["graph"] = GraphStore()

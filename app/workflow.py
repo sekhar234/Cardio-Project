@@ -208,7 +208,7 @@ async def fetch_node(state: ResearchState, config: RunnableConfig) -> ResearchSt
                 res.ok, res.text, res.error = False, "", f"Redirected to {domain_of(res.final_url)}: {dec.reason}"
         return res
 
-    results = await _gather_limited([fetch_one(src) for src in sources], 6)
+    results = await _gather_limited([fetch_one(src) for src in sources], 4)
     ok = 0
     index_items, index_texts = [], []
     async with db.session() as s:
@@ -242,6 +242,11 @@ async def fetch_node(state: ResearchState, config: RunnableConfig) -> ResearchSt
     return {}
 
 
+def _release_memory() -> None:
+    import gc
+    gc.collect()
+
+
 async def extract_node(state: ResearchState, config: RunnableConfig) -> ResearchState:
     d = _deps(config)
     run_id, city, country = state["run_id"], state["city"], state.get("country", "")
@@ -267,7 +272,10 @@ async def extract_node(state: ResearchState, config: RunnableConfig) -> Research
                 n += 1
                 s.add(db.Claim(run_id=run_id, source_id=src.id, seq=seq, **c))
         await s.commit()
-    await db.log_event(run_id, "extract", f"Extracted {n} candidate claims from {len(sources)} sources "
+    n_sources = len(sources)
+    del sources, results
+    _release_memory()
+    await db.log_event(run_id, "extract", f"Extracted {n} candidate claims from {n_sources} sources "
                                           "(pending independent verification)")
     return {}
 
@@ -401,10 +409,14 @@ async def build_graph_node(state: ResearchState, config: RunnableConfig) -> Rese
     run_id, city, country = state["run_id"], state["city"], state.get("country", "")
     await db.set_stage(run_id, "knowledge graph", graph_status="building")
     if not d.graph.enabled:
-        await db.set_stage(run_id, "knowledge graph", graph_status="disabled")
+        await db.set_stage(run_id, "done", graph_status="disabled")
         await db.log_event(run_id, "build_graph", "Graph store not configured (NEO4J_* missing)", "warning")
         return {}
-    claims = await db.claims_for_run(run_id, ("supported", "partially_supported"))
+    # The graph holds *relationships* (who runs what, which policy applies where). Statistics live in
+    # Postgres and the vector store, so only relational claim types go to Graphiti, capped to keep the
+    # slowest stage of the pipeline bounded.
+    claims = [c for c in await db.claims_for_run(run_id, ("supported", "partially_supported"))
+              if c.claim_type in GRAPH_CLAIM_TYPES][: settings.graph_max_claims]
     by_src: dict[str, list[db.Claim]] = {}
     for c in claims:
         by_src.setdefault(c.source_id, []).append(c)
@@ -452,10 +464,13 @@ async def build_graph_node(state: ResearchState, config: RunnableConfig) -> Rese
             edges += res["n_edges"]
             await db.log_event(run_id, "build_graph", f"Graph: +{res['n_nodes']} entities, +{res['n_edges']} "
                                                       f"relations from {src.domain} (part {part})")
-    status = "ready" if added and not failed else ("partial" if added else "failed")
-    await db.set_stage(run_id, "knowledge graph", graph_status=status)
+    status = "ready" if added and not failed else ("partial" if added else ("empty" if not claims else "failed"))
+    await db.set_stage(run_id, "done", graph_status=status)
     await db.log_event(run_id, "build_graph", f"Knowledge graph {status}: {added} source episodes, {edges} relations")
     return {}
+
+
+GRAPH_CLAIM_TYPES = {"person", "organisation", "programme", "policy", "fact"}
 
 
 async def synthesize_node(state: ResearchState, config: RunnableConfig) -> ResearchState:
@@ -477,8 +492,10 @@ async def finalize_node(state: ResearchState, config: RunnableConfig) -> Researc
     d = _deps(config)
     run_id = state["run_id"]
     async with db.session() as s:
-        sources = list((await s.execute(select(db.Source).where(db.Source.run_id == run_id))).scalars())
-        claims = list((await s.execute(select(db.Claim).where(db.Claim.run_id == run_id))).scalars())
+        sources = list((await s.execute(select(db.Source.crawl_allowed, db.Source.status)
+                                        .where(db.Source.run_id == run_id))).all())
+        claims = list((await s.execute(select(db.Claim.verdict, db.Claim.not_city_level)
+                                       .where(db.Claim.run_id == run_id))).all())
     stats = {
         "rounds": state.get("round", 1),
         "sources_considered": len(sources),
@@ -491,8 +508,11 @@ async def finalize_node(state: ResearchState, config: RunnableConfig) -> Researc
         "claims_not_city_level": sum(1 for c in claims if c.not_city_level and c.verdict != "unsupported"),
         "llm_usage": getattr(d.llm, "usage", {}),
     }
-    await db.set_stage(run_id, "done", status="done", stats=stats, finished_at=db.now())
-    await db.log_event(run_id, "finalize", "Research complete")
+    # The brief is usable now; the knowledge graph is built next, in the same run, while the
+    # City Lead already reads the brief (graph_status shows progress).
+    await db.set_stage(run_id, "knowledge graph", status="done", stats=stats, finished_at=db.now(),
+                       graph_status="building")
+    await db.log_event(run_id, "finalize", "Brief ready. Building the knowledge graph in the background…")
     return {}
 
 
@@ -521,10 +541,10 @@ def build_workflow():
     g.add_conditional_edges("assess_coverage", route_after_coverage,
                             {"followup_plan": "followup_plan", "resolve_conflicts": "resolve_conflicts"})
     g.add_edge("followup_plan", "search")
-    g.add_edge("resolve_conflicts", "build_graph")
-    g.add_edge("build_graph", "synthesize")
+    g.add_edge("resolve_conflicts", "synthesize")
     g.add_edge("synthesize", "finalize")
-    g.add_edge("finalize", END)
+    g.add_edge("finalize", "build_graph")
+    g.add_edge("build_graph", END)
     return g.compile()
 
 
